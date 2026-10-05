@@ -2,8 +2,11 @@
 'use strict';
 
 const srcEl = document.getElementById('src');
+const defsEl = document.getElementById('defs');
 const castEl = document.getElementById('castOn');
 const gutterEl = document.getElementById('gutter');
+const defsGutterEl = document.getElementById('defsGutter');
+const defsInfoEl = document.getElementById('defsInfo');
 const rowsEl = document.getElementById('rows');
 const statusEl = document.getElementById('status');
 const chartEl = document.getElementById('chart');
@@ -15,17 +18,24 @@ const MAX_CELLS = 1000;     // 图解中每行最多渲染的格数（超出画�
 
 const SYM_NAME = { k: 'k 下针', p: 'p 上针', yo: 'yo 挂线', k2tog: 'k2tog 二并一' };
 
-// 示例：起针 24，含嵌套分组与行末重复
+// 示例：片段定义（含相互引用）+ 行源码引用
+const DEFAULT_DEFS = [
+  '罗纹 = k k, p p',
+  '双罗纹 = @罗纹 @罗纹',
+  '镂空 = yo, k2tog',
+].join('\n');
+
 const DEFAULT_SOURCE = [
-  '(k k, p p)x6',
-  'k k k k, *yo, k2tog*',
-  '*p p, k k*',
-  '(k, yo, k2tog)x8',
-  '(k k, (p, yo)x2, k2tog)x4',
-  '*k k, p p*',
+  '(@罗纹)x6',
+  'k k k k, *@镂空*',
+  '*@双罗纹*',
+  '(k, @镂空)x8',
+  '(@罗纹, (p, yo)x2, k2tog)x3',
+  '*k k p*',
 ].join('\n');
 
 let lineStarts = [0];
+let defLineStarts = [0];
 let lastData = null;
 let reqSeq = 0;
 
@@ -39,9 +49,15 @@ function computeLineStarts(text) {
   return arr;
 }
 
-function lineRange(row) { // row 为 1 基
+function lineRange(row) { // row 为 1 基（行源码）
   const start = lineStarts[row - 1] ?? 0;
   const next = lineStarts[row] ?? (srcEl.value.length + 1);
+  return { start, len: Math.max(0, next - 1 - start) };
+}
+
+function defLineRange(line) { // line 为 1 基（定义区）
+  const start = defLineStarts[line - 1] ?? 0;
+  const next = defLineStarts[line] ?? (defsEl.value.length + 1);
   return { start, len: Math.max(0, next - 1 - start) };
 }
 
@@ -72,7 +88,9 @@ function scheduleCompile() {
 
 async function doCompile() {
   const text = srcEl.value;
+  const defsText = defsEl.value;
   lineStarts = computeLineStarts(text);
+  defLineStarts = computeLineStarts(defsText);
   const rows = text.split('\n');
   // 末尾单个换行不产生幻影空行（中间的空白行仍视为有效行）
   if (rows.length > 1 && rows[rows.length - 1] === '') rows.pop();
@@ -84,7 +102,7 @@ async function doCompile() {
     const res = await fetch('/api/compile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ castOn, rows }),
+      body: JSON.stringify({ castOn, defs: defsText, rows }),
     });
     data = await res.json();
     if (!res.ok) data = { requestError: data.error || ('HTTP ' + res.status) };
@@ -95,6 +113,7 @@ async function doCompile() {
 
   lastData = data;
   renderGutter(rows.length, data);
+  renderDefs(defsText, data);
   renderRows(data);
   renderChart(data);
   renderStatus(data);
@@ -114,19 +133,24 @@ function renderStatus(data) {
     const e = errRow.error;
     statusEl.textContent =
       `第 ${e.row} 行第 ${e.col} 列出错：${e.message}` +
+      (e.def_line != null ? `（定义第 ${e.def_line} 行）` : '') +
       (e.remaining != null ? `（余 ${e.remaining} 针）` : '');
     statusEl.classList.add('err');
     return;
   }
   const okRows = data.rows.filter(r => r.status === 'ok');
   const last = okRows[okRows.length - 1];
-  statusEl.textContent = last
+  let text = last
     ? `✓ 共 ${data.rows.length} 行全部通过 · 末行针数 ${last.out}`
     : `✓ 起针 ${data.castOn} 针`;
+  const defErrs = data.defs
+    ? data.defs.lines.filter(d => d.status === 'error').length : 0;
+  if (defErrs) text += ` ｜ ⚠ 定义区 ${defErrs} 行有问题`;
+  statusEl.textContent = text;
   statusEl.classList.add('ok');
 }
 
-/* ---------- 行号栏 ---------- */
+/* ---------- 行号栏（行源码 + 定义区） ---------- */
 
 function renderGutter(rowCount, data) {
   const statusByRow = {};
@@ -139,6 +163,34 @@ function renderGutter(rowCount, data) {
     const cls = st === 'error' ? 'g-err' : st === 'blocked' ? 'g-blk' : '';
     gutterEl.append(el('div', { class: cls }, String(i)));
   }
+}
+
+function renderDefs(defsText, data) {
+  const lineCount = defsText.split('\n').length;
+  const byLine = {};
+  if (!data.requestError && data.defs) {
+    for (const d of data.defs.lines) byLine[d.line] = d;
+  }
+  defsGutterEl.textContent = '';
+  let total = 0, used = 0, errs = 0;
+  for (let i = 1; i <= lineCount; i++) {
+    const d = byLine[i];
+    let cls = '';
+    if (d) {
+      if (d.status === 'error') { cls = 'g-err'; errs++; }
+      else if (d.status === 'unused') cls = 'g-unused';
+      if (d.name) { total++; if (d.used) used++; }
+    }
+    defsGutterEl.append(el('div', { class: cls }, String(i)));
+  }
+  if (data.requestError) {
+    defsInfoEl.textContent = '';
+    return;
+  }
+  defsInfoEl.textContent = total
+    ? `共 ${total} 个片段 · ${used} 个被引用` +
+      (errs ? ` · ${errs} 行有问题（未引用的片段不影响编译）` : '')
+    : '可在此定义片段：名称 = 针法序列，行内用 @名称 引用';
 }
 
 /* ---------- 展开结果 ---------- */
@@ -154,6 +206,15 @@ function renderRows(data) {
   }
 }
 
+function chipTitle(st) {
+  const base = SYM_NAME[st.sym];
+  if (!st.def) return `${base} · 源第 ${st.s + 1}–${st.e} 列`;
+  const via = (st.chain && st.chain.length > 1)
+    ? `（经 ${st.chain.slice(0, -1).join(' → ')}）` : '';
+  return `${base} · 行内引用第 ${st.s + 1}–${st.e} 列 · ` +
+    `定义「${st.def.name}」第 ${st.def.line} 行第 ${st.def.s + 1}–${st.def.e} 列${via}`;
+}
+
 function renderRowCard(row) {
   const card = el('div', { class: 'rowcard', 'data-row': row.row });
 
@@ -167,11 +228,20 @@ function renderRowCard(row) {
     const chips = el('div', { class: 'chips' });
     const list = row.stitches.slice(0, MAX_CHIPS);
     list.forEach(st => {
-      chips.append(el('span', {
-        class: 'chip ' + st.sym,
-        title: `${SYM_NAME[st.sym]} · 源第 ${st.s + 1}–${st.e} 列`,
+      const chip = el('span', {
+        class: 'chip ' + st.sym + (st.def ? ' fromdef' : ''),
+        title: chipTitle(st),
         'data-row': row.row, 'data-s': st.s, 'data-e': st.e,
-      }, st.sym));
+      }, st.sym);
+      if (st.def) {
+        chip.append(el('button', {
+          class: 'defjump', type: 'button',
+          title: `定位定义「${st.def.name}」第 ${st.def.line} 行`,
+          'data-def-line': st.def.line,
+          'data-def-s': st.def.s, 'data-def-e': st.def.e,
+        }, '↗'));
+      }
+      chips.append(chip);
     });
     if (row.stitches.length > MAX_CHIPS) {
       chips.append(el('span', { class: 'chip more' },
@@ -190,6 +260,13 @@ function renderRowCard(row) {
         class: 'locate', type: 'button',
         'data-row': e.row, 'data-s': e.col - 1, 'data-e': e.col,
       }, '定位'));
+    if (e.def_line != null) {
+      box.append(el('button', {
+        class: 'locate defjump', type: 'button',
+        'data-def-line': e.def_line,
+        'data-def-s': e.def_col - 1, 'data-def-e': e.def_col,
+      }, `定位定义${e.def_name ? '「' + e.def_name + '」' : ''}`));
+    }
     card.append(head, box);
   } else { // blocked
     head.append(el('span', { class: 'badge blocked' }, '未计算'));
@@ -200,7 +277,7 @@ function renderRowCard(row) {
   return card;
 }
 
-/* ---------- 源码定位 ---------- */
+/* ---------- 源码 / 定义区定位 ---------- */
 
 function revealSource(row, s, e) {
   const { start, len } = lineRange(row);
@@ -218,6 +295,16 @@ function revealSource(row, s, e) {
     setTimeout(() => card.classList.remove('flash'), 900);
   }
   markActiveRow(row);
+}
+
+function revealDef(line, s, e) {
+  const { start, len } = defLineRange(line);
+  const a = start + Math.min(Math.max(0, s), len);
+  const b = start + Math.min(Math.max(0, e), len);
+  defsEl.focus();
+  defsEl.setSelectionRange(a, b);
+  defsEl.scrollTop = Math.max(0, (line - 2) * LINE_H - LINE_H);
+  defsGutterEl.scrollTop = defsEl.scrollTop;
 }
 
 /* 光标所在行 ↔ 行卡片/图解行 联动高亮 */
@@ -328,9 +415,15 @@ function renderChart(data) {
 }
 
 function makeCell(rowNo, idx, st, x, y, cell) {
-  const g = svgEl('g', {
+  const attrs = {
     class: 'cell', 'data-row': rowNo, 'data-s': st.s, 'data-e': st.e,
-  });
+  };
+  if (st.def) { // 片段针法：双击可定位到定义
+    attrs['data-def-line'] = st.def.line;
+    attrs['data-def-s'] = st.def.s;
+    attrs['data-def-e'] = st.def.e;
+  }
+  const g = svgEl('g', attrs);
   const fills = { k: '#eef6ee', p: '#e8f1fb', yo: '#fdf1e3', k2tog: '#f3e9f7' };
   const inks = { k: '#2e7d32', p: '#1565c0', yo: '#b3541e', k2tog: '#6a1b9a' };
 
@@ -365,8 +458,11 @@ function makeCell(rowNo, idx, st, x, y, cell) {
 
   const title = svgEl('title');
   title.textContent =
-    `第 ${rowNo} 行 · 第 ${idx + 1} 针 · ${SYM_NAME[st.sym]}` +
-    ` · 源第 ${st.s + 1}–${st.e} 列`;
+    `第 ${rowNo} 行 · 第 ${idx + 1} 针 · ${SYM_NAME[st.sym]} · ` +
+    (st.def
+      ? `引用第 ${st.s + 1}–${st.e} 列 · 定义「${st.def.name}」第 ` +
+        `${st.def.line} 行（双击定位定义）`
+      : `源第 ${st.s + 1}–${st.e} 列`);
   g.append(title);
   return g;
 }
@@ -374,19 +470,35 @@ function makeCell(rowNo, idx, st, x, y, cell) {
 /* ---------- 事件 ---------- */
 
 srcEl.addEventListener('input', scheduleCompile);
+defsEl.addEventListener('input', scheduleCompile);
 castEl.addEventListener('input', scheduleCompile);
 srcEl.addEventListener('scroll', () => { gutterEl.scrollTop = srcEl.scrollTop; });
+defsEl.addEventListener('scroll',
+  () => { defsGutterEl.scrollTop = defsEl.scrollTop; });
 srcEl.addEventListener('keyup', () => markActiveRow(cursorRow()));
 srcEl.addEventListener('click', () => markActiveRow(cursorRow()));
 
-// 行卡片 / 图解中的点击 → 回到源码（事件委托）
+// 行卡片 / 图解中的点击 → 回到源码；↗ 按钮 → 定位定义（事件委托）
 document.addEventListener('click', ev => {
+  const dj = ev.target.closest('.defjump');
+  if (dj) {
+    revealDef(+dj.dataset.defLine, +dj.dataset.defS, +dj.dataset.defE);
+    return;
+  }
   const t = ev.target.closest('[data-row][data-s]');
   if (!t) return;
   revealSource(+t.dataset.row, +t.dataset.s, +t.dataset.e);
 });
 
+// 图解格元双击 → 定位到针法所在定义
+chartEl.addEventListener('dblclick', ev => {
+  const t = ev.target.closest('[data-def-line]');
+  if (!t) return;
+  revealDef(+t.dataset.defLine, +t.dataset.defS, +t.dataset.defE);
+});
+
 /* ---------- 启动 ---------- */
 
+defsEl.value = DEFAULT_DEFS;
 srcEl.value = DEFAULT_SOURCE;
 doCompile();

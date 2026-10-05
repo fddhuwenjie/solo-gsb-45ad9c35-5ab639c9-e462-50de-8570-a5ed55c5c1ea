@@ -78,14 +78,22 @@ main {
 .pane h2 { font-size: 14px; margin: 2px 0 10px; }
 .pane h2 .sub { font-weight: 400; color: var(--muted); font-size: 12px; }
 
-/* ---- 源码编辑器 ---- */
+/* ---- 源码/定义区编辑器 ---- */
 .editor {
   display: flex;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
-  height: 460px;
   background: #fffdf9;
+}
+.defs-editor { height: 120px; }
+.src-editor  { height: 330px; }
+.pane h2.mt { margin-top: 14px; }
+.defs-info {
+  margin: 6px 2px 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--muted);
 }
 .gutter {
   padding: 8px 6px 8px 10px;
@@ -101,7 +109,8 @@ main {
 }
 .gutter .g-err { color: var(--err); font-weight: 700; }
 .gutter .g-blk { color: var(--blocked); }
-#src {
+.gutter .g-unused { color: #c8c1b2; }
+#src, #defs {
   flex: 1;
   border: 0;
   outline: none;
@@ -113,7 +122,7 @@ main {
   white-space: pre;
   overflow: auto;
 }
-#src::selection { background: #ffd9a8; }
+#src::selection, #defs::selection { background: #ffd9a8; }
 
 /* ---- 展开结果 ---- */
 .rows { display: flex; flex-direction: column; gap: 8px; max-height: 520px; overflow: auto; }
@@ -152,6 +161,17 @@ main {
 .chip.yo    { background: var(--yo-bg); color: var(--yo-fg); border-color: #f0d9bd; }
 .chip.k2tog { background: var(--kt-bg); color: var(--kt-fg); border-color: #e0cdea; }
 .chip.more  { background: #eee; color: var(--muted); cursor: default; }
+.chip.fromdef { border-style: dashed; }
+.chip .defjump {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0 0 0 3px;
+  cursor: pointer;
+  opacity: .55;
+}
+.chip .defjump:hover { opacity: 1; }
 
 .errbox {
   margin-top: 6px;

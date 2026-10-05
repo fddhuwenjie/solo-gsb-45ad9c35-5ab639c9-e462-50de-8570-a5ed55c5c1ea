@@ -6,7 +6,9 @@
     POST /api/compile   编译全部行，返回逐行展开/错误信息
 
 请求体：
-    {"castOn": 24, "rows": ["(k2,p2)x6", "k4, *yo, k2tog*", ...]}
+    {"castOn": 24,
+     "defs": "罗纹 = k k, p p\n镂空 = yo, k2tog",   // 可选：片段定义区
+     "rows": ["(@罗纹)x6", "k k k k, *@镂空*", ...]}
 """
 from flask import Flask, jsonify, render_template, request
 
@@ -28,9 +30,10 @@ def api_compile():
 
     cast_on = data.get('castOn')
     rows = data.get('rows')
+    defs = data.get('defs')  # 可选：缺省时按无片段定义编译（兼容旧请求）
 
     try:
-        result = compiler.compile_rows(cast_on, rows)
+        result = compiler.compile_rows(cast_on, rows, defs)
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
 
