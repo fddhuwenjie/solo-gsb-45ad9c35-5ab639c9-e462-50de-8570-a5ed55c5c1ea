@@ -20,13 +20,21 @@
     <code>yo</code> 0/1 · <code>k2tog</code> 2/1 ｜
     分组：<code>(…)xN</code> 可嵌套 ｜
     行末重复：<code>*…*</code>（单次消耗须为正且整除余针，重复到行末）｜
-    每行源码 = 一行针织；整行消耗必须恰好等于上一行针数，不得截断或补针
+    片段：定义区按 <code>名称 = 针法序列</code> 编写，行内用 <code>@名称</code>
+    引用，可相互/前向引用；片段内不写 <code>*…*</code> ｜
+    每行整段消耗必须恰好等于上一行针数，不得截断或补针
   </div>
 </header>
 
 <main>
   <section class="pane" id="srcPane">
-    <h2>① 源码 <span class="sub">（每行一行针法）</span></h2>
+    <h2>① 片段定义 <span class="sub">（每行 <code>名称 = 针法序列</code>，可用 <code>@名称</code> 相互/前向引用；不要写 <code>*…*</code>）</span></h2>
+    <div class="editor def-editor">
+      <div id="defGutter" class="gutter" aria-hidden="true"></div>
+      <textarea id="defSrc" spellcheck="false" wrap="off"
+        autocomplete="off" autocapitalize="off"></textarea>
+    </div>
+    <h2 class="rows-title">② 行源码 <span class="sub">（每行一行针法，用 <code>@名称</code> 引用片段）</span></h2>
     <div class="editor">
       <div id="gutter" class="gutter" aria-hidden="true"></div>
       <textarea id="src" spellcheck="false" wrap="off"
@@ -35,12 +43,12 @@
   </section>
 
   <section class="pane" id="rowsPane">
-    <h2>② 展开结果 <span class="sub">（点击针法可定位源码）</span></h2>
+    <h2>③ 展开结果 <span class="sub">（点击针法定位定义；⌖ 定位行内引用）</span></h2>
     <div id="rows" class="rows"></div>
   </section>
 
   <section class="pane" id="chartPane">
-    <h2>③ 图解 <span class="sub">（第 1 行在底部，点击格元回到源码）</span></h2>
+    <h2>④ 图解 <span class="sub">（第 1 行在底部；格内角标 ⌖ 定位行内引用，格体定位定义）</span></h2>
     <div id="chartWrap" class="chart-wrap">
       <svg id="chart" xmlns="http://www.w3.org/2000/svg" role="img"
            aria-label="针织图解"></svg>
